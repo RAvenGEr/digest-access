@@ -1,0 +1,17 @@
+[package]
+name = "digest-access"
+version = "0.1.0"
+authors = ["David Webb <ravenger@dpwlabs.com>"]
+license = "MIT/Apache-2.0"
+edition = "2018"
+
+[features]
+from-headers = ["http"]
+
+[dependencies]
+digest = "0.9"
+hex = "0.4"
+md-5 = "0.9"
+rand = "0.7"
+sha2 = "0.9"
+http = { version = "0.2", optional = true }
