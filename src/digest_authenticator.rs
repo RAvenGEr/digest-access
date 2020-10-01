@@ -1,7 +1,10 @@
-use digest::Digest;
+use digest::{Digest, Output};
 use md5::Md5;
-use rand::distributions::{Distribution, Uniform};
-use rand::thread_rng;
+use rand::{
+    distributions::{Distribution, Uniform},
+    seq::SliceRandom,
+    thread_rng,
+};
 use sha2::{Sha256, Sha512Trunc256};
 use std::fmt;
 use std::str::FromStr;
@@ -102,6 +105,8 @@ pub struct DigestAccess {
     userhash: bool,
     qop: QualityOfProtection,
     qop_data: Option<QualityOfProtectionData>,
+    username: Option<String>,
+    hashed_user_realm_pass: Option<Vec<u8>>,
 }
 
 impl FromStr for DigestAccess {
@@ -130,6 +135,8 @@ impl FromStr for DigestAccess {
 
             qop: QualityOfProtection::None,
             qop_data: None,
+            username: None,
+            hashed_user_realm_pass: None,
         };
 
         #[derive(PartialEq)]
@@ -213,16 +220,44 @@ impl FromStr for DigestAccess {
 }
 
 impl DigestAccess {
-    ///
-    pub fn generate_authentication(
+    pub fn set_username<A: Into<String>>(&mut self, username: A) {
+        self.username = Some(username.into());
+    }
+
+    pub fn set_password(&mut self, password: &str) {
+        if let Some(user) = self.username.as_ref() {
+            let hashed = match self.algorithm {
+                DigestAlgorithm::MD5 => {
+                    Self::hash_user_realm_password::<Md5>(user, self.realm(), password).to_vec()
+                }
+                DigestAlgorithm::SHA256 => {
+                    Self::hash_user_realm_password::<Sha256>(user, self.realm(), password).to_vec()
+                }
+                DigestAlgorithm::SHA512_256 => {
+                    Self::hash_user_realm_password::<Sha512Trunc256>(user, self.realm(), password)
+                        .to_vec()
+                }
+            };
+            self.hashed_user_realm_pass = Some(hashed);
+        }
+    }
+
+    pub fn set_hashed_user_realm_password<A: Into<Vec<u8>>>(&mut self, hashed: A) {
+        self.hashed_user_realm_pass = Some(hashed.into());
+    }
+
+    /// Generate the Authorization header value
+    pub fn generate_authorization(
         &mut self,
-        username: &str,
-        password: &str,
         method: &str,
         uri: &str,
         body: Option<&str>,
         cnonce: Option<&str>,
-    ) -> String {
+    ) -> Option<String> {
+        if self.username.is_none() || self.hashed_user_realm_pass.is_none() {
+            return None;
+        }
+
         self.qop_data = if self.qop != QualityOfProtection::None {
             let cnonce = match cnonce {
                 Some(c) => c.to_owned(),
@@ -244,15 +279,26 @@ impl DigestAccess {
             None
         };
         let response = match self.algorithm {
-            DigestAlgorithm::MD5 => {
-                self.generate_response_string::<Md5>(username, password, method, uri, body)
-            }
-            DigestAlgorithm::SHA256 => {
-                self.generate_response_string::<Sha256>(username, password, method, uri, body)
-            }
-            DigestAlgorithm::SHA512_256 => self
-                .generate_response_string::<Sha512Trunc256>(username, password, method, uri, body),
+            DigestAlgorithm::MD5 => self.generate_response_string::<Md5>(
+                self.hashed_user_realm_pass.as_ref().unwrap(),
+                method,
+                uri,
+                body,
+            ),
+            DigestAlgorithm::SHA256 => self.generate_response_string::<Sha256>(
+                self.hashed_user_realm_pass.as_ref().unwrap(),
+                method,
+                uri,
+                body,
+            ),
+            DigestAlgorithm::SHA512_256 => self.generate_response_string::<Sha512Trunc256>(
+                self.hashed_user_realm_pass.as_ref().unwrap(),
+                method,
+                uri,
+                body,
+            ),
         };
+        let username = self.username.as_ref().unwrap();
         let mut auth_str_len = 90
             + username.len()
             + self.realm().len()
@@ -309,7 +355,7 @@ impl DigestAccess {
         if self.userhash {
             auth.push_str(", userhash=true");
         }
-        auth
+        Some(auth)
     }
 
     fn process_header_value(&mut self, key: &str, auth: &str, val_pos: StrPosition) {
@@ -373,38 +419,46 @@ impl DigestAccess {
         }
     }
 
-    fn cnonce() -> String {
-        let mut rng = thread_rng();
-        let len = Uniform::new_inclusive(8, 32);
-        let val = Uniform::new_inclusive(0, 15);
-        let mut cnonce = String::with_capacity(len.sample(&mut rng));
-        let hex_vals = [
+    pub fn cnonce() -> String {
+        const HEX_CHARS: [char; 16] = [
             '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
         ];
-        while cnonce.len() < cnonce.capacity() {
-            cnonce.push(hex_vals[val.sample(&mut rng)]);
+        let mut rng = thread_rng();
+        let size = Uniform::new_inclusive(8, 32).sample(&mut rng);
+        let mut cnonce = String::with_capacity(size);
+        for _ in 0..size {
+            cnonce.push(*HEX_CHARS.choose(&mut rng).unwrap());
         }
         cnonce
     }
 
-    fn calculate_ha1<T: Digest>(&self, username: &str, password: &str) -> String {
+    pub fn hash_user_realm_password<T: Digest>(
+        username: &str,
+        realm: &str,
+        password: &str,
+    ) -> Output<T> {
         let mut hasher = T::new();
         hasher.update(username);
         hasher.update(":");
-        hasher.update(self.realm());
+        hasher.update(realm);
         hasher.update(":");
         hasher.update(password);
+        hasher.finalize()
+    }
+
+    fn calculate_ha1<T: Digest>(&self, hashed_user_realm_pass: &Vec<u8>) -> String {
         if self.session {
             let qop_data = self.qop_data.as_ref().unwrap();
-            let digest = hasher.finalize_reset();
-            hasher.update(digest);
+            let mut hasher = T::new();
+            hasher.update(hashed_user_realm_pass);
             hasher.update(":");
             hasher.update(self.nonce());
             hasher.update(":");
             hasher.update(&qop_data.cnonce);
+            hex::encode(hasher.finalize())
+        } else {
+            hex::encode(hashed_user_realm_pass)
         }
-        let digest = hasher.finalize();
-        hex::encode(digest)
     }
 
     fn calculate_ha2<T: Digest>(&self, method: &str, uri: &str, body: Option<&str>) -> String {
@@ -446,13 +500,12 @@ impl DigestAccess {
 
     fn generate_response_string<T: Digest>(
         &self,
-        username: &str,
-        password: &str,
+        hashed_user_realm_pass: &Vec<u8>,
         method: &str,
         uri: &str,
         body: Option<&str>,
     ) -> String {
-        let ha1 = self.calculate_ha1::<T>(username, password);
+        let ha1 = self.calculate_ha1::<T>(hashed_user_realm_pass);
 
         let ha2 = self.calculate_ha2::<T>(method, uri, body);
 
