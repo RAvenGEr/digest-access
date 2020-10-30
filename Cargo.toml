@@ -1,6 +1,6 @@
 [package]
 name = "digest-access"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["David Webb <ravenger@dpwlabs.com>"]
 description = "HTTP Digest Access Authentication for Rust"
 repository = "https://github.com/RAvenGEr/digest-access"
