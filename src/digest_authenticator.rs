@@ -9,6 +9,9 @@ use sha2::{Sha256, Sha512Trunc256};
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(feature = "from-headers")]
+use http::{header::WWW_AUTHENTICATE, HeaderMap};
+
 #[derive(Debug, PartialEq)]
 enum DigestAlgorithm {
     MD5,
@@ -52,7 +55,7 @@ struct QualityOfProtectionData {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DigestParseError {
-    Empty,
+    Length,
     MissingDigest,
     MissingRealm,
     MissingNonce,
@@ -61,10 +64,10 @@ pub enum DigestParseError {
 impl DigestParseError {
     fn description(&self) -> &str {
         match self {
-            DigestParseError::Empty => "cannot parse Digest scheme from empty string",
-            DigestParseError::MissingDigest => "string does not start with \"Digest \"",
-            DigestParseError::MissingNonce => "Digest scheme must contain a nonce value",
-            DigestParseError::MissingRealm => "Digest scheme must contain a realm value",
+            DigestParseError::Length => "Cannot parse Digest scheme from short string.",
+            DigestParseError::MissingDigest => "Supplied string does not start with \"Digest \"",
+            DigestParseError::MissingNonce => "Digest scheme must contain a nonce value.",
+            DigestParseError::MissingRealm => "Digest scheme must contain a realm value.",
         }
     }
 }
@@ -113,113 +116,35 @@ impl FromStr for DigestAccess {
     type Err = DigestParseError;
 
     fn from_str(auth: &str) -> Result<Self, Self::Err> {
-        if auth.is_empty() {
-            return Err(DigestParseError::Empty);
+        if auth.len() < Self::MIN_AUTH_LENGTH {
+            return Err(DigestParseError::Length);
         }
 
-        if &auth[..6].to_lowercase() != "digest" {
+        if !Self::valid_start(auth) {
             return Err(DigestParseError::MissingDigest);
         }
 
-        let mut res = Self {
-            www_authenticate: auth.to_owned(),
-            nonce: StrPosition::default(),
-            domain: None,
-            realm: StrPosition::default(),
-            opaque: StrPosition::default(),
-            stale: false,
-            nonce_count: 0,
-            algorithm: DigestAlgorithm::MD5,
-            session: false,
-            userhash: false,
-
-            qop: QualityOfProtection::None,
-            qop_data: None,
-            username: None,
-            hashed_user_realm_pass: None,
-        };
-
-        #[derive(PartialEq)]
-        enum KeyVal {
-            PreKey,
-            Key,
-            PreVal,
-            QuoteVal,
-            Val,
-        }
-
-        let mut state = KeyVal::PreKey;
-        let mut key: &str = "";
-        let mut k_pos = StrPosition::default();
-        let mut v_pos = StrPosition::default();
-
-        for ch_ind in auth.char_indices().skip(6) {
-            match state {
-                KeyVal::PreKey => {
-                    if !ch_ind.1.is_ascii_whitespace() {
-                        k_pos.start = ch_ind.0;
-                        state = KeyVal::Key;
-                    }
-                }
-                KeyVal::Key => {
-                    if ch_ind.1 != '=' {
-                        continue;
-                    }
-                    k_pos.end = ch_ind.0;
-                    key = k_pos.to_str(auth);
-                    state = KeyVal::PreVal;
-                    k_pos = StrPosition::default();
-                }
-                KeyVal::PreVal => {
-                    if ch_ind.1 == '"' {
-                        v_pos.start = ch_ind.0 + 1;
-                        state = KeyVal::QuoteVal;
-                    } else {
-                        v_pos.start = ch_ind.0;
-                        state = KeyVal::Val;
-                    }
-                }
-                KeyVal::QuoteVal => {
-                    if ch_ind.1 != '"' {
-                        continue;
-                    }
-                    v_pos.end = ch_ind.0;
-                    let is_last = ch_ind.0 == auth.len() - 1;
-                    if is_last {
-                        res.process_header_value(&key, auth, v_pos);
-                    }
-                    state = KeyVal::Val;
-                }
-                KeyVal::Val => {
-                    let is_last = ch_ind.0 == auth.len() - 1;
-                    if !is_last && ch_ind.1 != ',' {
-                        if v_pos.end == 0 && ch_ind.1.is_ascii_whitespace() {
-                            v_pos.end = ch_ind.0;
-                        }
-                        continue;
-                    }
-                    if v_pos.end == 0 {
-                        v_pos.end = ch_ind.0;
-                    }
-                    if is_last {
-                        v_pos.end = ch_ind.0 + 1;
-                    }
-                    res.process_header_value(&key, auth, v_pos);
-                    v_pos = StrPosition::default();
-                    state = KeyVal::PreKey;
-                }
-            }
-        }
-
-        match (res.nonce.is_valid(), res.realm.is_valid()) {
-            (true, true) => Ok(res),
-            (true, false) => Err(DigestParseError::MissingRealm),
-            (_, _) => Err(DigestParseError::MissingNonce),
-        }
+        Self::create_from_www_auth(auth)
     }
 }
 
 impl DigestAccess {
+    const MIN_AUTH_LENGTH: usize = 22;
+    /// Returns a DigestAccess object if the HTTP response HeaderMap contains a digest authenticate header
+    #[cfg(feature = "from-headers")]
+    pub fn from_headers(headers: &HeaderMap) -> Result<DigestAccess, DigestParseError> {
+        if let Some(a) = headers.get(WWW_AUTHENTICATE) {
+            if a.len() > Self::MIN_AUTH_LENGTH {
+                if let Ok(b) = a.to_str() {
+                    if Self::valid_start(b) {
+                        return DigestAccess::create_from_www_auth(b);
+                    }
+                }
+            }
+        }
+        Err(DigestParseError::MissingDigest)
+    }
+
     pub fn set_username<A: Into<String>>(&mut self, username: A) {
         self.username = Some(username.into());
     }
@@ -251,7 +176,7 @@ impl DigestAccess {
         &mut self,
         method: &str,
         uri: &str,
-        body: Option<&str>,
+        body: Option<&[u8]>,
         cnonce: Option<&str>,
     ) -> Option<String> {
         if self.username.is_none() || self.hashed_user_realm_pass.is_none() {
@@ -358,6 +283,108 @@ impl DigestAccess {
         Some(auth)
     }
 
+    fn valid_start(auth: &str) -> bool {
+        auth[..6].to_lowercase() == "digest"
+    }
+
+    fn create_from_www_auth(auth: &str) -> Result<Self, DigestParseError> {
+        let mut res = Self {
+            www_authenticate: auth.to_owned(),
+            nonce: StrPosition::default(),
+            domain: None,
+            realm: StrPosition::default(),
+            opaque: StrPosition::default(),
+            stale: false,
+            nonce_count: 0,
+            algorithm: DigestAlgorithm::MD5,
+            session: false,
+            userhash: false,
+
+            qop: QualityOfProtection::None,
+            qop_data: None,
+            username: None,
+            hashed_user_realm_pass: None,
+        };
+
+        #[derive(PartialEq)]
+        enum KeyVal {
+            PreKey,
+            Key,
+            PreVal,
+            QuoteVal,
+            Val,
+        }
+
+        let mut state = KeyVal::PreKey;
+        let mut key: &str = "";
+        let mut k_pos = StrPosition::default();
+        let mut v_pos = StrPosition::default();
+
+        for ch_ind in auth.char_indices().skip(6) {
+            match state {
+                KeyVal::PreKey => {
+                    if !ch_ind.1.is_ascii_whitespace() {
+                        k_pos.start = ch_ind.0;
+                        state = KeyVal::Key;
+                    }
+                }
+                KeyVal::Key => {
+                    if ch_ind.1 != '=' {
+                        continue;
+                    }
+                    k_pos.end = ch_ind.0;
+                    key = k_pos.to_str(auth);
+                    state = KeyVal::PreVal;
+                    k_pos = StrPosition::default();
+                }
+                KeyVal::PreVal => {
+                    if ch_ind.1 == '"' {
+                        v_pos.start = ch_ind.0 + 1;
+                        state = KeyVal::QuoteVal;
+                    } else {
+                        v_pos.start = ch_ind.0;
+                        state = KeyVal::Val;
+                    }
+                }
+                KeyVal::QuoteVal => {
+                    if ch_ind.1 != '"' {
+                        continue;
+                    }
+                    v_pos.end = ch_ind.0;
+                    let is_last = ch_ind.0 == auth.len() - 1;
+                    if is_last {
+                        res.process_header_value(&key, auth, v_pos);
+                    }
+                    state = KeyVal::Val;
+                }
+                KeyVal::Val => {
+                    let is_last = ch_ind.0 == auth.len() - 1;
+                    if !is_last && ch_ind.1 != ',' {
+                        if v_pos.end == 0 && ch_ind.1.is_ascii_whitespace() {
+                            v_pos.end = ch_ind.0;
+                        }
+                        continue;
+                    }
+                    if v_pos.end == 0 {
+                        v_pos.end = ch_ind.0;
+                    }
+                    if is_last {
+                        v_pos.end = ch_ind.0 + 1;
+                    }
+                    res.process_header_value(&key, auth, v_pos);
+                    v_pos = StrPosition::default();
+                    state = KeyVal::PreKey;
+                }
+            }
+        }
+
+        match (res.nonce.is_valid(), res.realm.is_valid()) {
+            (true, true) => Ok(res),
+            (true, false) => Err(DigestParseError::MissingRealm),
+            (_, _) => Err(DigestParseError::MissingNonce),
+        }
+    }
+
     fn process_header_value(&mut self, key: &str, auth: &str, val_pos: StrPosition) {
         if key.eq_ignore_ascii_case("nonce") {
             self.nonce = val_pos;
@@ -446,7 +473,7 @@ impl DigestAccess {
         hasher.finalize()
     }
 
-    fn calculate_ha1<T: Digest>(&self, hashed_user_realm_pass: &Vec<u8>) -> String {
+    fn calculate_ha1<T: Digest>(&self, hashed_user_realm_pass: &[u8]) -> String {
         if self.session {
             let qop_data = self.qop_data.as_ref().unwrap();
             let mut hasher = T::new();
@@ -461,7 +488,7 @@ impl DigestAccess {
         }
     }
 
-    fn calculate_ha2<T: Digest>(&self, method: &str, uri: &str, body: Option<&str>) -> String {
+    fn calculate_ha2<T: Digest>(&self, method: &str, uri: &str, body: Option<&[u8]>) -> String {
         let mut hasher = T::new();
         hasher.update(method);
         hasher.update(":");
@@ -500,10 +527,10 @@ impl DigestAccess {
 
     fn generate_response_string<T: Digest>(
         &self,
-        hashed_user_realm_pass: &Vec<u8>,
+        hashed_user_realm_pass: &[u8],
         method: &str,
         uri: &str,
-        body: Option<&str>,
+        body: Option<&[u8]>,
     ) -> String {
         let ha1 = self.calculate_ha1::<T>(hashed_user_realm_pass);
 

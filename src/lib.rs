@@ -1,23 +1,9 @@
 //! This crate provides HTTP Digest Access Authentication, as specified by ITEF RFC2069, RFC2617 and RFC7616
 //!
 
-#[cfg(feature = "from-headers")]
-use http::{header::WWW_AUTHENTICATE, HeaderMap};
-
 mod digest_authenticator;
 
 pub use digest_authenticator::{DigestAccess, DigestParseError};
-
-/// Return the Digest Authenticate string from a HTTP response HeaderMap
-#[cfg(feature = "from-headers")]
-pub fn digest_authenticate_from_headers(headers: &HeaderMap) -> Option<String> {
-    if let Ok(a) = headers.get(WWW_AUTHENTICATE)?.to_str() {
-        if &a[..7].to_lowercase() == "digest " {
-            return Some(a.to_string());
-        }
-    }
-    None
-}
 
 #[cfg(test)]
 mod tests {
@@ -134,5 +120,17 @@ mod tests {
             auth_str.unwrap(),
             r#"Digest username="793263caabb707a56211940d90411ea4a575adeccb7e360aeb624ed06ece9b0b", realm="api@example.org", nonce="5TsQWLVdgBdmrQ0XsxbDODV+57QdFR34I9HAbC/RVvkK", uri="/doe.json", qop=auth, algorithm=SHA-512-256, nc=00000001, cnonce="NTg6RKcb9boFIAS3KrFK9BGeh+iDa/sm6jUMp2wds69v", response="3798d4131c277846293534c3edc11bd8a5e4cdcbff78b05db9d95eeb1cec68a5", opaque="HRPCssKJSGjCrkzDg8OhwpzCiGPChXYjwrI2QmXDnsOS", userhash=true"#
         );
+    }
+
+    #[test]
+    #[cfg(feature = "from-headers")]
+    fn from_headers() {
+        const WWW_AUTH_VALUE: &str = r#"Digest realm="testrealm@host.com", nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093""#;
+        let mut headers = http::HeaderMap::new();
+        let r = crate::digest_authenticator::DigestAccess::from_headers(&headers);
+        assert!(r.is_err());
+        headers.insert(http::header::WWW_AUTHENTICATE, WWW_AUTH_VALUE.parse().unwrap());
+        let r = crate::digest_authenticator::DigestAccess::from_headers(&headers);
+        assert!(r.is_ok());
     }
 }
