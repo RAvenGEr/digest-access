@@ -6,9 +6,9 @@ A (mostly) complete implementation of ITEF RFC2069, RFC2617 and RFC7616
 Features
 ---
 
-* `from-headers` - provides the digest_authenticate_from_headers function to 
-  extract a Digest Access Authentication WWW-Authenticate string from an HTTP
-  response. Adds the `http` crate as a dependency.
+* `from-headers` - provides the DigestAccess::from_headers function to 
+  create a DigetAccess instance from HTTP response headers.
+  Adds the `http` crate as a dependency.
 
 License
 ---
