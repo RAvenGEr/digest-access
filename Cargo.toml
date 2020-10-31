@@ -14,8 +14,8 @@ readme = "README.md"
 name = "benchmark"
 harness = false
 
-
 [features]
+default = ["from-headers"]
 from-headers = ["http"]
 
 [dependencies]
