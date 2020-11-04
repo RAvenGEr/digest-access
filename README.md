@@ -1,17 +1,19 @@
+[![crates.io](https://img.shields.io/crates/v/digest-access.svg)](https://crates.io/crates/digest-access)
+[![docs.rs](https://docs.rs/digest-access/badge.svg)](https://docs.rs/digest-access)
+
 # digest-access
 HTTP Digest Access Authentication for Rust
 
 A (mostly) complete implementation of ITEF RFC2069, RFC2617 and RFC7616
 
-Features
----
+## Features
 
 * `from-headers` - provides the DigestAccess::from_headers function to 
   create a DigetAccess instance from HTTP response headers.
   Adds the `http` crate as a dependency.
 
-License
----
+## License
+
 Digest Access is licensed under either of
 
 * [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)

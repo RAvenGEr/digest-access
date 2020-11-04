@@ -2,7 +2,7 @@
 name = "digest-access"
 version = "0.2.0"
 authors = ["David Webb <ravenger@dpwlabs.com>"]
-description = "HTTP Digest Access Authentication for Rust"
+description = "HTTP Digest Access Authentication compliant with ITEF RFC2069, RFC2617 and RFC7616 for Rust"
 repository = "https://github.com/RAvenGEr/digest-access"
 license = "MIT OR Apache-2.0"
 edition = "2018"
