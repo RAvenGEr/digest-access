@@ -11,6 +11,8 @@ use std::str::FromStr;
 
 #[cfg(feature = "from-headers")]
 use http::{header::WWW_AUTHENTICATE, HeaderMap};
+#[cfg(feature = "from-headers")]
+use std::convert::TryFrom;
 
 #[derive(Debug, PartialEq)]
 enum DigestAlgorithm {
@@ -130,20 +132,6 @@ impl FromStr for DigestAccess {
 
 impl DigestAccess {
     const MIN_AUTH_LENGTH: usize = 22;
-    /// Returns a DigestAccess object if the HTTP response HeaderMap contains a digest authenticate header
-    #[cfg(feature = "from-headers")]
-    pub fn from_headers(headers: &HeaderMap) -> Result<DigestAccess, DigestParseError> {
-        if let Some(a) = headers.get(WWW_AUTHENTICATE) {
-            if a.len() > Self::MIN_AUTH_LENGTH {
-                if let Ok(b) = a.to_str() {
-                    if Self::valid_start(b) {
-                        return DigestAccess::create_from_www_auth(b);
-                    }
-                }
-            }
-        }
-        Err(DigestParseError::MissingDigest)
-    }
 
     pub fn set_username<A: Into<String>>(&mut self, username: A) {
         self.username = Some(username.into());
@@ -545,5 +533,24 @@ impl DigestAccess {
         hasher.update(":");
         hasher.update(self.realm());
         hex::encode(hasher.finalize())
+    }
+}
+
+#[cfg(feature = "from-headers")]
+impl<'a> TryFrom<&'a HeaderMap> for DigestAccess {
+    type Error = DigestParseError;
+    /// Returns a DigestScheme object if the HTTP response HeaderMap contains a digest authenticate header
+    fn try_from(headers: &HeaderMap) -> Result<DigestAccess, Self::Error> {
+        let auth_headers = headers.get_all(WWW_AUTHENTICATE);
+        for a in auth_headers.iter() {
+            if a.len() > Self::MIN_AUTH_LENGTH {
+                if let Ok(b) = a.to_str() {
+                    if Self::valid_start(b) {
+                        return DigestAccess::create_from_www_auth(b);
+                    }
+                }
+            }
+        }
+        Err(DigestParseError::MissingDigest)
     }
 }

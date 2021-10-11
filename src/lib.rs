@@ -7,7 +7,7 @@ pub use digest_authenticator::{DigestAccess, DigestParseError};
 
 #[cfg(test)]
 mod tests {
-
+    use std::convert::TryFrom;
     #[test]
     fn rfc2069() {
         let rfc2069_test = r#"Digest realm="testrealm@host.com", nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093", opaque="5ccc069c403ebaf9f0171e9517f40e41""#;
@@ -125,12 +125,16 @@ mod tests {
     #[test]
     #[cfg(feature = "from-headers")]
     fn from_headers() {
-        const WWW_AUTH_VALUE: &str = r#"Digest realm="testrealm@host.com", nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093""#;
+        const WWW_AUTH_VALUE: &str =
+            r#"Digest realm="testrealm@host.com", nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093""#;
         let mut headers = http::HeaderMap::new();
-        let r = crate::digest_authenticator::DigestAccess::from_headers(&headers);
+        let r = crate::digest_authenticator::DigestAccess::try_from(&headers);
         assert!(r.is_err());
-        headers.insert(http::header::WWW_AUTHENTICATE, WWW_AUTH_VALUE.parse().unwrap());
-        let r = crate::digest_authenticator::DigestAccess::from_headers(&headers);
+        headers.insert(
+            http::header::WWW_AUTHENTICATE,
+            WWW_AUTH_VALUE.parse().unwrap(),
+        );
+        let r = crate::digest_authenticator::DigestAccess::try_from(&headers);
         assert!(r.is_ok());
     }
 }

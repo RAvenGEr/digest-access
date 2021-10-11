@@ -1,4 +1,5 @@
 use reqwest::header::AUTHORIZATION;
+use std::convert::TryFrom;
 use url::Position;
 
 #[tokio::main]
@@ -11,7 +12,7 @@ async fn main() -> Result<(), reqwest::Error> {
     let client = reqwest::Client::new();
     let res = client.get(&test_url).send().await?;
 
-    if let Ok(mut auth) = digest_access::DigestAccess::from_headers(res.headers()) {
+    if let Ok(mut auth) = digest_access::DigestAccess::try_from(res.headers()) {
         let url = res.url().to_owned();
         let body = res.bytes().await;
         let body_slice: Option<&[u8]> = match &body {

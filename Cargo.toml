@@ -1,6 +1,6 @@
 [package]
 name = "digest-access"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["David Webb <ravenger@dpwlabs.com>"]
 description = "HTTP Digest Access Authentication compliant with ITEF RFC2069, RFC2617 and RFC7616 for Rust"
 repository = "https://github.com/RAvenGEr/digest-access"
@@ -22,12 +22,12 @@ from-headers = ["http"]
 digest = "0.9"
 hex = "0.4"
 md-5 = "0.9"
-rand = "0.7"
+rand = "0.8"
 sha2 = "0.9"
 http = { version = "0.2", optional = true }
 
 [dev-dependencies]
 criterion = "0.3"
-reqwest = "0.10"
-tokio = { version = "0.2", features = ["rt-threaded", "macros"] }
+reqwest = "0.11"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 url = "2.1"
