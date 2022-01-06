@@ -8,8 +8,9 @@ A (mostly) complete implementation of ITEF RFC2069, RFC2617 and RFC7616
 
 ## Features
 
-* `from-headers` - provides an implementation of the TryFrom&lt;http::HeaderMap&gt; trait to 
-  create a DigetAccess instance from HTTP response headers. See the reqwest example for how to use.
+* `from-headers` - provides an implementation of the `TryFrom<http::HeaderMap>` trait to 
+  create a DigestAccess instance from HTTP response headers. See the reqwest_get example for how to use.
+
   Adds the `http` crate as a dependency.
 
 ## License

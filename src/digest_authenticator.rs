@@ -5,7 +5,7 @@ use rand::{
     seq::SliceRandom,
     thread_rng,
 };
-use sha2::{Sha256, Sha512Trunc256};
+use sha2::{Sha256, Sha512_256};
 use std::fmt;
 use std::str::FromStr;
 
@@ -147,7 +147,7 @@ impl DigestAccess {
                     Self::hash_user_realm_password::<Sha256>(user, self.realm(), password).to_vec()
                 }
                 DigestAlgorithm::SHA512_256 => {
-                    Self::hash_user_realm_password::<Sha512Trunc256>(user, self.realm(), password)
+                    Self::hash_user_realm_password::<Sha512_256>(user, self.realm(), password)
                         .to_vec()
                 }
             };
@@ -204,7 +204,7 @@ impl DigestAccess {
                 uri,
                 body,
             ),
-            DigestAlgorithm::SHA512_256 => self.generate_response_string::<Sha512Trunc256>(
+            DigestAlgorithm::SHA512_256 => self.generate_response_string::<Sha512_256>(
                 self.hashed_user_realm_pass.as_ref().unwrap(),
                 method,
                 uri,
@@ -235,7 +235,7 @@ impl DigestAccess {
             let user = match self.algorithm {
                 DigestAlgorithm::MD5 => self.hash_username::<Md5>(username),
                 DigestAlgorithm::SHA256 => self.hash_username::<Sha256>(username),
-                DigestAlgorithm::SHA512_256 => self.hash_username::<Sha512Trunc256>(username),
+                DigestAlgorithm::SHA512_256 => self.hash_username::<Sha512_256>(username),
             };
             auth.push_str(&user);
         } else {
