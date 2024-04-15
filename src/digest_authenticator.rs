@@ -554,3 +554,12 @@ impl<'a> TryFrom<&'a HeaderMap> for DigestAccess {
         Err(DigestParseError::MissingDigest)
     }
 }
+
+#[cfg(feature = "from-headers")]
+impl TryFrom<HeaderMap> for DigestAccess {
+    type Error = DigestParseError;
+
+    fn try_from(headers: HeaderMap) -> Result<Self, Self::Error> {
+        DigestAccess::try_from(&headers)
+    }
+}
