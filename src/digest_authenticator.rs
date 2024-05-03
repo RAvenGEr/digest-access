@@ -272,7 +272,7 @@ impl DigestAccess {
     }
 
     fn valid_start(auth: &str) -> bool {
-        auth.is_char_boundary(7) && auth[..6].to_ascii_lowercase() == "digest"
+        auth.is_char_boundary(6) && auth[..6].to_ascii_lowercase() == "digest"
     }
 
     fn create_from_www_auth(auth: &str) -> Result<Self, DigestParseError> {
