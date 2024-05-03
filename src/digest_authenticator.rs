@@ -272,7 +272,11 @@ impl DigestAccess {
     }
 
     fn valid_start(auth: &str) -> bool {
-        auth[..6].to_lowercase() == "digest"
+        let mut it = auth.split_ascii_whitespace();
+        match it.next() {
+            Some(start) => start.to_lowercase() == "digest",
+            None => false,
+        }
     }
 
     fn create_from_www_auth(auth: &str) -> Result<Self, DigestParseError> {
