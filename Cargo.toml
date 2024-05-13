@@ -22,6 +22,7 @@ from-headers = ["http"]
 digest = "0.10"
 hex = "0.4"
 md-5 = "0.10"
+nom = "7.1"
 rand = "0.8"
 sha2 = "0.10"
 http = { version = "1", optional = true }
