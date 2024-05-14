@@ -6,8 +6,7 @@ use rand::{
     thread_rng,
 };
 use sha2::{Sha256, Sha512_256};
-use std::fmt;
-use std::str::FromStr;
+use std::{fmt, ops::Range, str::FromStr};
 
 #[cfg(feature = "from-headers")]
 use http::{header::WWW_AUTHENTICATE, HeaderMap};
@@ -58,6 +57,7 @@ struct QualityOfProtectionData {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DigestParseError {
     Length,
+    InvalidEncoding,
     MissingDigest,
     MissingRealm,
     MissingNonce,
@@ -67,7 +67,8 @@ impl DigestParseError {
     fn description(&self) -> &str {
         match self {
             DigestParseError::Length => "Cannot parse Digest scheme from short string.",
-            DigestParseError::MissingDigest => "Supplied string does not start with \"Digest \"",
+            DigestParseError::InvalidEncoding => "String doesn't match expected encoding.",
+            DigestParseError::MissingDigest => "String does not start with \"Digest \"",
             DigestParseError::MissingNonce => "Digest scheme must contain a nonce value.",
             DigestParseError::MissingRealm => "Digest scheme must contain a realm value.",
         }
@@ -81,28 +82,30 @@ impl fmt::Display for DigestParseError {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-struct StrPosition {
+struct StrRange {
     start: usize,
     end: usize,
 }
 
-impl StrPosition {
-    fn to_str<'a>(&self, s: &'a str) -> &'a str {
-        &s[self.start..self.end]
-    }
-
+impl StrRange {
     fn is_valid(&self) -> bool {
         self.start < self.end
     }
 }
 
+impl Into<Range<usize>> for StrRange {
+    fn into(self) -> Range<usize> {
+        self.start..self.end
+    }
+}
+
 #[derive(Debug)]
 pub struct DigestAccess {
-    www_authenticate: String,
-    nonce: StrPosition,
-    domain: Option<Vec<StrPosition>>,
-    realm: StrPosition,
-    opaque: StrPosition,
+    authenticate: String,
+    nonce: StrRange,
+    domain: Vec<StrRange>,
+    realm: StrRange,
+    opaque: StrRange,
     stale: bool,
     nonce_count: u32,
     algorithm: DigestAlgorithm,
@@ -119,14 +122,10 @@ impl FromStr for DigestAccess {
 
     fn from_str(auth: &str) -> Result<Self, Self::Err> {
         if auth.len() < Self::MIN_AUTH_LENGTH {
-            return Err(DigestParseError::Length);
+            Err(DigestParseError::Length)
+        } else {
+            Self::create_from_www_auth(auth)
         }
-
-        if !Self::valid_start(auth) {
-            return Err(DigestParseError::MissingDigest);
-        }
-
-        Self::create_from_www_auth(auth)
     }
 }
 
@@ -271,23 +270,19 @@ impl DigestAccess {
         Some(auth)
     }
 
-    fn valid_start(auth: &str) -> bool {
-        auth.is_char_boundary(6) && auth[..6].to_ascii_lowercase() == "digest"
-    }
-
     fn create_from_www_auth(auth: &str) -> Result<Self, DigestParseError> {
+        let input = Self::digest_challenge(auth)?;
         let mut res = Self {
-            www_authenticate: auth.to_owned(),
-            nonce: StrPosition::default(),
-            domain: None,
-            realm: StrPosition::default(),
-            opaque: StrPosition::default(),
+            authenticate: input.to_owned(),
+            nonce: StrRange::default(),
+            domain: Vec::new(),
+            realm: StrRange::default(),
+            opaque: StrRange::default(),
             stale: false,
             nonce_count: 0,
             algorithm: DigestAlgorithm::MD5,
             session: false,
             userhash: false,
-
             qop: QualityOfProtection::None,
             qop_data: None,
             username: None,
@@ -304,91 +299,108 @@ impl DigestAccess {
         }
 
         let mut state = KeyVal::PreKey;
-        let mut key: &str = "";
-        let mut k_pos = StrPosition::default();
-        let mut v_pos = StrPosition::default();
+        let mut key = StrRange::default();
+        let mut value = StrRange::default();
 
-        for ch_ind in auth.char_indices().skip(6) {
+        for (idx, ch) in input.char_indices() {
             match state {
                 KeyVal::PreKey => {
-                    if !ch_ind.1.is_ascii_whitespace() {
-                        k_pos.start = ch_ind.0;
+                    if !ch.is_ascii_whitespace() {
+                        key.start = idx;
                         state = KeyVal::Key;
                     }
                 }
                 KeyVal::Key => {
-                    if ch_ind.1 != '=' {
+                    if ch != '=' {
                         continue;
                     }
-                    k_pos.end = ch_ind.0;
-                    key = k_pos.to_str(auth);
+                    key.end = idx;
                     state = KeyVal::PreVal;
-                    k_pos = StrPosition::default();
                 }
                 KeyVal::PreVal => {
-                    if ch_ind.1 == '"' {
-                        v_pos.start = ch_ind.0 + 1;
+                    if ch == '"' {
+                        value.start = idx + 1;
                         state = KeyVal::QuoteVal;
                     } else {
-                        v_pos.start = ch_ind.0;
+                        value.start = idx;
                         state = KeyVal::Val;
                     }
                 }
                 KeyVal::QuoteVal => {
-                    if ch_ind.1 != '"' {
+                    if ch != '"' {
                         continue;
                     }
-                    v_pos.end = ch_ind.0;
-                    let is_last = ch_ind.0 == auth.len() - 1;
+                    value.end = idx;
+                    let is_last = idx == input.len() - 1;
                     if is_last {
-                        res.process_header_value(&key, auth, v_pos);
+                        res.apply_directive(key, value);
                     }
                     state = KeyVal::Val;
                 }
                 KeyVal::Val => {
-                    let is_last = ch_ind.0 == auth.len() - 1;
-                    if !is_last && ch_ind.1 != ',' {
-                        if v_pos.end == 0 && ch_ind.1.is_ascii_whitespace() {
-                            v_pos.end = ch_ind.0;
+                    let is_last = idx == input.len() - 1;
+                    if !is_last && ch != ',' {
+                        if value.end == 0 && ch.is_ascii_whitespace() {
+                            value.end = idx;
                         }
                         continue;
                     }
-                    if v_pos.end == 0 {
-                        v_pos.end = ch_ind.0;
+                    if value.end == 0 {
+                        value.end = idx;
                     }
                     if is_last {
-                        v_pos.end = ch_ind.0 + 1;
+                        value.end = idx + 1;
                     }
-                    res.process_header_value(&key, auth, v_pos);
-                    v_pos = StrPosition::default();
+                    res.apply_directive(key, value);
+                    value = StrRange::default();
+                    key = StrRange::default();
                     state = KeyVal::PreKey;
                 }
             }
         }
 
         match (res.nonce.is_valid(), res.realm.is_valid()) {
+            (_, false) => Err(DigestParseError::MissingRealm),
+            (false, _) => Err(DigestParseError::MissingNonce),
             (true, true) => Ok(res),
-            (true, false) => Err(DigestParseError::MissingRealm),
-            (_, _) => Err(DigestParseError::MissingNonce),
         }
     }
 
-    fn process_header_value(&mut self, key: &str, auth: &str, val_pos: StrPosition) {
+    #[inline(always)]
+    fn digest_challenge(input: &str) -> Result<&str, DigestParseError> {
+        if input.is_char_boundary(6) {
+            let (dig, input) = input.split_at(6);
+            if dig.eq_ignore_ascii_case("digest") {
+                let ret = input.trim_start_matches(|c: char| c.is_ascii_whitespace());
+                return if input.len() == ret.len() {
+                    Err(DigestParseError::InvalidEncoding)
+                } else {
+                    Ok(ret)
+                };
+            }
+        }
+        Err(DigestParseError::MissingDigest)
+    }
+
+    fn apply_directive(&mut self, key: StrRange, val: StrRange) {
+        let key = self.authenticate_slice(key.into());
         if key.eq_ignore_ascii_case("nonce") {
-            self.nonce = val_pos;
+            self.nonce = val;
         } else if key.eq_ignore_ascii_case("realm") {
-            self.realm = val_pos;
+            self.realm = val;
         } else if key.eq_ignore_ascii_case("domain") {
             // @todo solve splitting - this isn't commonly used
             // res.domain = Some(value.as_str().split(' ').collect());
         } else if key.eq_ignore_ascii_case("opaque") {
-            self.opaque = val_pos;
+            self.opaque = val;
         } else if key.eq_ignore_ascii_case("stale")
-            && val_pos.to_str(auth).eq_ignore_ascii_case("true")
+            && self
+                .authenticate_slice(val.into())
+                .eq_ignore_ascii_case("true")
         {
             self.stale = true;
         } else if key.eq_ignore_ascii_case("algorithm") {
-            let alg_str = val_pos.to_str(auth).to_lowercase();
+            let alg_str = self.authenticate_slice(val.into()).to_ascii_lowercase();
             if alg_str.contains("sha-256") {
                 self.algorithm = DigestAlgorithm::SHA256;
                 if alg_str.contains("sha-256-sess") {
@@ -403,32 +415,37 @@ impl DigestAccess {
                 self.session = true;
             }
         } else if key.eq_ignore_ascii_case("qop") {
-            let qop_str = val_pos.to_str(auth);
-            if qop_str.contains(QualityOfProtection::AuthInt.to_str())
-                || qop_str.eq_ignore_ascii_case(QualityOfProtection::AuthInt.to_str())
-            {
+            let qop_str = self.authenticate_slice(val.into()).to_ascii_lowercase();
+            if qop_str.contains(QualityOfProtection::AuthInt.to_str()) {
                 self.qop = QualityOfProtection::AuthInt;
             } else {
                 self.qop = QualityOfProtection::Auth;
             }
         } else if key.eq_ignore_ascii_case("userhash")
-            && val_pos.to_str(auth).eq_ignore_ascii_case("true")
+            && self
+                .authenticate_slice(val.into())
+                .eq_ignore_ascii_case("true")
         {
             self.userhash = true;
         }
     }
 
+    #[inline(always)]
+    fn authenticate_slice(&self, r: Range<usize>) -> &str {
+        &self.authenticate[r]
+    }
+
     fn realm(&self) -> &str {
-        self.realm.to_str(&self.www_authenticate)
+        self.authenticate_slice(self.realm.into())
     }
 
     pub fn nonce(&self) -> &str {
-        self.nonce.to_str(&self.www_authenticate)
+        self.authenticate_slice(self.nonce.into())
     }
 
     fn opaque(&self) -> Option<&str> {
         if self.opaque.is_valid() {
-            Some(self.opaque.to_str(&self.www_authenticate))
+            Some(self.authenticate_slice(self.opaque.into()))
         } else {
             None
         }
@@ -541,17 +558,18 @@ impl<'a> TryFrom<&'a HeaderMap> for DigestAccess {
     type Error = DigestParseError;
     /// Returns a DigestScheme object if the HTTP response HeaderMap contains a digest authenticate header
     fn try_from(headers: &HeaderMap) -> Result<DigestAccess, Self::Error> {
+        let mut err = DigestParseError::MissingDigest;
         let auth_headers = headers.get_all(WWW_AUTHENTICATE);
         for a in auth_headers.iter() {
             if a.len() > Self::MIN_AUTH_LENGTH {
                 if let Ok(b) = a.to_str() {
-                    if Self::valid_start(b) {
-                        return DigestAccess::create_from_www_auth(b);
-                    }
+                    return DigestAccess::create_from_www_auth(b);
                 }
+            } else {
+                err = DigestParseError::Length;
             }
         }
-        Err(DigestParseError::MissingDigest)
+        Err(err)
     }
 }
 

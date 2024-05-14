@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn rfc7616_userhash_512_256() {
-        let rfc7616_test = r#"Digest
+        let rfc7616_userhash_test = r#"Digest
         realm="api@example.org",
         qop="auth",
         algorithm=SHA-512-256,
@@ -103,7 +103,7 @@ mod tests {
         charset=UTF-8,
         userhash=true"#;
 
-        let mut d = rfc7616_test
+        let mut d = rfc7616_userhash_test
             .parse::<crate::digest_authenticator::DigestAccess>()
             .unwrap();
         d.set_username("Jäsøn Doe");
