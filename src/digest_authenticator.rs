@@ -372,14 +372,17 @@ impl DigestAccess {
             let (dig, input) = input.split_at(6);
             if dig.eq_ignore_ascii_case("digest") {
                 let ret = input.trim_start_matches(|c: char| c.is_ascii_whitespace());
-                return if input.len() == ret.len() {
+                if input.len() == ret.len() {
                     Err(DigestParseError::InvalidEncoding)
                 } else {
                     Ok(ret)
-                };
+                }
+            } else {
+                Err(DigestParseError::MissingDigest)
             }
+        } else {
+            Err(DigestParseError::InvalidEncoding)
         }
-        Err(DigestParseError::MissingDigest)
     }
 
     fn apply_directive(&mut self, key: StrRange, val: StrRange) {

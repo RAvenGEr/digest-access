@@ -8,6 +8,9 @@ pub use digest_authenticator::{DigestAccess, DigestParseError};
 #[cfg(test)]
 mod tests {
     use std::convert::TryFrom;
+
+    use crate::DigestParseError;
+
     #[test]
     fn rfc2069() {
         let rfc2069_test = r#"Digest realm="testrealm@host.com", nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093", opaque="5ccc069c403ebaf9f0171e9517f40e41""#;
@@ -120,6 +123,61 @@ mod tests {
             auth_str.unwrap(),
             r#"Digest username="793263caabb707a56211940d90411ea4a575adeccb7e360aeb624ed06ece9b0b", realm="api@example.org", nonce="5TsQWLVdgBdmrQ0XsxbDODV+57QdFR34I9HAbC/RVvkK", uri="/doe.json", qop=auth, algorithm=SHA-512-256, nc=00000001, cnonce="NTg6RKcb9boFIAS3KrFK9BGeh+iDa/sm6jUMp2wds69v", response="3798d4131c277846293534c3edc11bd8a5e4cdcbff78b05db9d95eeb1cec68a5", opaque="HRPCssKJSGjCrkzDg8OhwpzCiGPChXYjwrI2QmXDnsOS", userhash=true"#
         );
+    }
+
+    #[test]
+    fn very_short_input() {
+        let short_input = "digest";
+        let r = short_input.parse::<crate::digest_authenticator::DigestAccess>();
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err(), DigestParseError::Length);
+    }
+
+    #[test]
+    fn short_input() {
+        let short_input = r#"Digest realm=1, nonce=1"#;
+        let r = short_input.parse::<crate::digest_authenticator::DigestAccess>();
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn incorrect_digest_input() {
+        let bad_input = "digestible Lorem ipsum ";
+        let r = bad_input.parse::<crate::digest_authenticator::DigestAccess>();
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err(), DigestParseError::InvalidEncoding);
+    }
+
+    #[test]
+    fn missing_realm_input() {
+        let bad_input = "digest Lorem \"ipsum\" dolor";
+        let r = bad_input.parse::<crate::digest_authenticator::DigestAccess>();
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err(), DigestParseError::MissingRealm);
+    }
+
+    #[test]
+    fn missing_nonce_input() {
+        let missing_nonce = r#"Digest realm="testrealm@host.com""#;
+        let r = missing_nonce.parse::<crate::digest_authenticator::DigestAccess>();
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err(), DigestParseError::MissingNonce);
+    }
+
+    #[test]
+    fn missing_unterminated_nonce_string_input() {
+        let unterminated_nonce = r#"Digest realm="testrealm@host.com", nonce="testing"#;
+        let r = unterminated_nonce.parse::<crate::digest_authenticator::DigestAccess>();
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err(), DigestParseError::MissingNonce);
+    }
+
+    #[test]
+    fn invalid_character_at_split() {
+        let invalid_char = r#"Digesţ realm="testrealm@host.com", nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093", opaque="5ccc069c403ebaf9f0171e9517f40e41""#;
+        let r = invalid_char.parse::<crate::digest_authenticator::DigestAccess>();
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err(), DigestParseError::InvalidEncoding);
     }
 
     #[test]
