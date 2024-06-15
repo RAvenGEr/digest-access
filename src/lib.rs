@@ -3,7 +3,9 @@
 
 mod digest_authenticator;
 
-pub use digest_authenticator::{DigestAccess, DigestParseError};
+pub use digest_authenticator::{
+    DigestAccess, DigestAlgorithm, DigestParseError, QualityOfProtection, QualityOfProtectionData,
+};
 
 #[cfg(test)]
 mod tests {

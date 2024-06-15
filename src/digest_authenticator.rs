@@ -14,7 +14,7 @@ use http::{header::WWW_AUTHENTICATE, HeaderMap};
 use std::convert::TryFrom;
 
 #[derive(Debug, PartialEq)]
-enum DigestAlgorithm {
+pub enum DigestAlgorithm {
     MD5,
     SHA256,
     SHA512_256,
@@ -31,7 +31,7 @@ impl DigestAlgorithm {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum QualityOfProtection {
+pub enum QualityOfProtection {
     None, // rfc2069
     Auth,
     AuthInt,
@@ -48,7 +48,7 @@ impl QualityOfProtection {
 }
 
 #[derive(Debug)]
-struct QualityOfProtectionData {
+pub struct QualityOfProtectionData {
     cnonce: String,
     count_str: String,
     qop: QualityOfProtection,
