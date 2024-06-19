@@ -197,4 +197,12 @@ mod tests {
         let r = crate::digest_authenticator::DigestAccess::try_from(&headers);
         assert!(r.is_ok());
     }
+
+    #[test]
+    fn server_auth() {
+        let userhashed = r#"Digest username="793263caabb707a56211940d90411ea4a575adeccb7e360aeb624ed06ece9b0b", realm="api@example.org", nonce="5TsQWLVdgBdmrQ0XsxbDODV+57QdFR34I9HAbC/RVvkK", uri="/doe.json", qop=auth, algorithm=SHA-512-256, nc=00000001, cnonce="NTg6RKcb9boFIAS3KrFK9BGeh+iDa/sm6jUMp2wds69v", response="3798d4131c277846293534c3edc11bd8a5e4cdcbff78b05db9d95eeb1cec68a5", opaque="HRPCssKJSGjCrkzDg8OhwpzCiGPChXYjwrI2QmXDnsOS", userhash=true"#;
+
+        let username = "Jäsøn Doe";
+        let password = "Secret, or not?";
+    }
 }
