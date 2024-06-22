@@ -302,7 +302,7 @@ impl DigestAccess {
     }
 
     fn parse_key_value_header(input: &str) -> Vec<(StrRange, StrRange)> {
-        let mut data = Vec::new();
+        let mut data = Vec::with_capacity(16);
 
         #[derive(PartialEq)]
         enum KeyVal {
@@ -316,14 +316,6 @@ impl DigestAccess {
         let mut state = KeyVal::PreKey;
         let mut key = StrRange::default();
         let mut value = StrRange::default();
-
-        let mut push = |k: StrRange, v: StrRange| {
-            if k.is_valid() && v.is_valid() {
-                data.push((k, v));
-            } else {
-                eprintln!("Unexpected");
-            }
-        };
 
         for (idx, ch) in input.char_indices() {
             match state {
@@ -356,7 +348,7 @@ impl DigestAccess {
                     value.end = idx;
                     let is_last = idx == input.len() - 1;
                     if is_last {
-                        push(key, value);
+                        data.push((key, value));
                     }
                     state = KeyVal::Val;
                 }
@@ -374,7 +366,7 @@ impl DigestAccess {
                     if is_last {
                         value.end = idx + 1;
                     }
-                    push(key, value);
+                    data.push((key, value));
                     value = StrRange::default();
                     key = StrRange::default();
                     state = KeyVal::PreKey;
