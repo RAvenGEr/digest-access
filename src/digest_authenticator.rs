@@ -93,9 +93,9 @@ impl StrRange {
     }
 }
 
-impl Into<Range<usize>> for StrRange {
-    fn into(self) -> Range<usize> {
-        self.start..self.end
+impl From<StrRange> for Range<usize> {
+    fn from(val: StrRange) -> Self {
+        val.start..val.end
     }
 }
 
@@ -289,6 +289,21 @@ impl DigestAccess {
             hashed_user_realm_pass: None,
         };
 
+        let data = Self::parse_key_value_header(input);
+        for (key, val) in data.into_iter() {
+            res.apply_directive(key, val);
+        }
+
+        match (res.nonce.is_valid(), res.realm.is_valid()) {
+            (_, false) => Err(DigestParseError::MissingRealm),
+            (false, _) => Err(DigestParseError::MissingNonce),
+            (true, true) => Ok(res),
+        }
+    }
+
+    fn parse_key_value_header(input: &str) -> Vec<(StrRange, StrRange)> {
+        let mut data = Vec::new();
+
         #[derive(PartialEq)]
         enum KeyVal {
             PreKey,
@@ -301,6 +316,14 @@ impl DigestAccess {
         let mut state = KeyVal::PreKey;
         let mut key = StrRange::default();
         let mut value = StrRange::default();
+
+        let mut push = |k: StrRange, v: StrRange| {
+            if k.is_valid() && v.is_valid() {
+                data.push((k, v));
+            } else {
+                eprintln!("Unexpected");
+            }
+        };
 
         for (idx, ch) in input.char_indices() {
             match state {
@@ -333,7 +356,7 @@ impl DigestAccess {
                     value.end = idx;
                     let is_last = idx == input.len() - 1;
                     if is_last {
-                        res.apply_directive(key, value);
+                        push(key, value);
                     }
                     state = KeyVal::Val;
                 }
@@ -351,19 +374,14 @@ impl DigestAccess {
                     if is_last {
                         value.end = idx + 1;
                     }
-                    res.apply_directive(key, value);
+                    push(key, value);
                     value = StrRange::default();
                     key = StrRange::default();
                     state = KeyVal::PreKey;
                 }
             }
         }
-
-        match (res.nonce.is_valid(), res.realm.is_valid()) {
-            (_, false) => Err(DigestParseError::MissingRealm),
-            (false, _) => Err(DigestParseError::MissingNonce),
-            (true, true) => Ok(res),
-        }
+        data
     }
 
     #[inline(always)]
