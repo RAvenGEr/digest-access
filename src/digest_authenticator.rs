@@ -1,9 +1,9 @@
 use digest::{Digest, Output};
 use md5::Md5;
 use rand::{
-    distributions::{Distribution, Uniform},
-    seq::SliceRandom,
-    thread_rng,
+    distr::{Distribution, Uniform},
+    prelude::*,
+    rng,
 };
 use sha2::{Sha256, Sha512_256};
 use std::{fmt, ops::Range, str::FromStr};
@@ -458,11 +458,13 @@ impl DigestAccess {
         const HEX_CHARS: [char; 16] = [
             '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
         ];
-        let mut rng = thread_rng();
-        let size = Uniform::new_inclusive(8, 32).sample(&mut rng);
+        let mut rng = rng();
+        let size = Uniform::new_inclusive(8, 32)
+            .expect("Uniform distribution failure")
+            .sample(&mut rng);
         let mut cnonce = String::with_capacity(size);
         for _ in 0..size {
-            cnonce.push(*HEX_CHARS.choose(&mut rng).unwrap());
+            cnonce.push(*HEX_CHARS.choose(&mut rng).expect("Random choice failure"));
         }
         cnonce
     }
