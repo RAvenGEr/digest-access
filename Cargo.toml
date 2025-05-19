@@ -27,7 +27,7 @@ sha2 = "0.10"
 http = { version = "1", optional = true }
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.6"
 reqwest = "0.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 url = "2.1"
