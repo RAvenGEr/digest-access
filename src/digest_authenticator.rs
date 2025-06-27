@@ -102,10 +102,10 @@ impl From<StrRange> for Range<usize> {
 #[derive(Debug)]
 pub struct DigestAccess {
     authenticate: String,
-    nonce: StrRange,
+    nonce: Option<StrRange>,
     domain: Vec<StrRange>,
-    realm: StrRange,
-    opaque: StrRange,
+    realm: Option<StrRange>,
+    opaque: Option<StrRange>,
     stale: bool,
     nonce_count: u32,
     algorithm: DigestAlgorithm,
@@ -274,10 +274,10 @@ impl DigestAccess {
         let input = Self::digest_challenge(auth)?;
         let mut res = Self {
             authenticate: input.to_owned(),
-            nonce: StrRange::default(),
+            nonce: None,
             domain: Vec::new(),
-            realm: StrRange::default(),
-            opaque: StrRange::default(),
+            realm: None,
+            opaque: None,
             stale: false,
             nonce_count: 0,
             algorithm: DigestAlgorithm::MD5,
@@ -288,22 +288,19 @@ impl DigestAccess {
             username: None,
             hashed_user_realm_pass: None,
         };
+        res.parse_key_value_headers(input);
 
-        let data = Self::parse_key_value_header(input);
-        for (key, val) in data.into_iter() {
-            res.apply_directive(key, val);
-        }
-
-        match (res.nonce.is_valid(), res.realm.is_valid()) {
+        match (
+            res.nonce.is_some_and(|nonce| nonce.is_valid()),
+            res.realm.is_some(),
+        ) {
             (_, false) => Err(DigestParseError::MissingRealm),
             (false, _) => Err(DigestParseError::MissingNonce),
             (true, true) => Ok(res),
         }
     }
 
-    fn parse_key_value_header(input: &str) -> Vec<(StrRange, StrRange)> {
-        let mut data = Vec::with_capacity(16);
-
+    fn parse_key_value_headers(&mut self, input: &str) {
         #[derive(PartialEq)]
         enum KeyVal {
             PreKey,
@@ -348,7 +345,7 @@ impl DigestAccess {
                     value.end = idx;
                     let is_last = idx == input.len() - 1;
                     if is_last {
-                        data.push((key, value));
+                        self.apply_directive(key, value);
                     }
                     state = KeyVal::Val;
                 }
@@ -366,14 +363,13 @@ impl DigestAccess {
                     if is_last {
                         value.end = idx + 1;
                     }
-                    data.push((key, value));
+                    self.apply_directive(key, value);
                     value = StrRange::default();
                     key = StrRange::default();
                     state = KeyVal::PreKey;
                 }
             }
         }
-        data
     }
 
     #[inline(always)]
@@ -398,14 +394,14 @@ impl DigestAccess {
     fn apply_directive(&mut self, key: StrRange, val: StrRange) {
         let key = self.authenticate_slice(key.into());
         if key.eq_ignore_ascii_case("nonce") {
-            self.nonce = val;
+            self.nonce = Some(val);
         } else if key.eq_ignore_ascii_case("realm") {
-            self.realm = val;
+            self.realm = Some(val);
         } else if key.eq_ignore_ascii_case("domain") {
             // @todo solve splitting - this isn't commonly used
             // res.domain = Some(value.as_str().split(' ').collect());
         } else if key.eq_ignore_ascii_case("opaque") {
-            self.opaque = val;
+            self.opaque = Some(val);
         } else if key.eq_ignore_ascii_case("stale")
             && self
                 .authenticate_slice(val.into())
@@ -449,19 +445,15 @@ impl DigestAccess {
     }
 
     fn realm(&self) -> &str {
-        self.authenticate_slice(self.realm.into())
+        self.authenticate_slice(self.realm.unwrap().into())
     }
 
     pub fn nonce(&self) -> &str {
-        self.authenticate_slice(self.nonce.into())
+        self.authenticate_slice(self.nonce.unwrap().into())
     }
 
     fn opaque(&self) -> Option<&str> {
-        if self.opaque.is_valid() {
-            Some(self.authenticate_slice(self.opaque.into()))
-        } else {
-            None
-        }
+        self.opaque.map(|op| self.authenticate_slice(op.into()))
     }
 
     pub fn cnonce() -> String {
