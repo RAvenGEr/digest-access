@@ -28,6 +28,6 @@ http = { version = "1", optional = true }
 
 [dev-dependencies]
 criterion = "0.5"
-reqwest = "0.12"
+reqwest = "0.13"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 url = "2.1"
